@@ -1,0 +1,110 @@
+#include <stdio.h>
+
+#define M 32
+#define N 32
+#define K 32
+#define TILE_SIZE 16
+
+__global__ void matrixMulKernel(const int* A, const int* B, int* C, int M, int N, int K) {
+    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    int col = blockIdx.x * blockDim.x + threadIdx.x;
+
+    __shared__ int tile_A[TILE_SIZE][TILE_SIZE];
+    __shared__ int tile_B[TILE_SIZE][TILE_SIZE];
+
+    int sum = 0;
+
+    for (int tile = 0; tile < (K - 1) / TILE_SIZE + 1; ++tile) {
+        int tile_row = threadIdx.y;
+        int tile_col = threadIdx.x;
+
+        int global_row = row * TILE_SIZE + tile_row;
+        int global_col = col * TILE_SIZE + tile_col;
+
+        if (global_row < M && tile * TILE_SIZE + tile_col < K) {
+            tile_A[tile_row][tile_col] = A[global_row * K + tile * TILE_SIZE + tile_col];
+        } else {
+            tile_A[tile_row][tile_col] = 0;
+        }
+
+        if (global_col < N && tile * TILE_SIZE + tile_row < K) {
+            tile_B[tile_row][tile_col] = B[(tile * TILE_SIZE + tile_row) * N + global_col];
+        } else {
+            tile_B[tile_row][tile_col] = 0;
+        }
+
+        __syncthreads();
+
+        for (int i = 0; i < TILE_SIZE; ++i) {
+            sum += tile_A[tile_row][i] * tile_B[i][tile_col];
+        }
+
+        __syncthreads();
+    }
+
+    if (row < M && col < N) {
+        C[row * N + col] = sum;
+    }
+}
+
+int main() {
+    int *A, *B, *C;
+    int *d_A, *d_B, *d_C;
+
+    // Allocate host memory
+    A = (int*)malloc(M * K * sizeof(int));
+    B = (int*)malloc(K * N * sizeof(int));
+    C = (int*)malloc(M * N * sizeof(int));
+
+    // Initialize matrices A and B
+    for (int i = 0; i < M; ++i) {
+        for (int j = 0; j < K; ++j) {
+            A[i * K + j] = i + j;
+        }
+    }
+    for (int i = 0; i < K; ++i) {
+        for (int j = 0; j < N; ++j) {
+            B[i * N + j] = i - j;
+        }
+    }
+
+    // Allocate device memory
+    cudaMalloc((void**)&d_A, M * K * sizeof(int));
+    cudaMalloc((void**)&d_B, K * N * sizeof(int));
+    cudaMalloc((void**)&d_C, M * N * sizeof(int));
+
+    // Copy matrices A and B from host to device
+    cudaMemcpy(d_A, A, M * K * sizeof(int), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_B, B, K * N * sizeof(int), cudaMemcpyHostToDevice);
+
+    // Define grid and block dimensions
+    dim3 dimBlock(TILE_SIZE, TILE_SIZE);
+    dim3 dimGrid((N - 1) / dimBlock.x + 1, (M - 1) / dimBlock.y + 1);
+
+    // Launch kernel for matrix multiplication
+    matrixMulKernel<<<dimGrid, dimBlock>>>(d_A, d_B, d_C, M, N, K);
+
+    // Copy matrix C from device to host
+    cudaMemcpy(C, d_C, M * N * sizeof(int), cudaMemcpyDeviceToHost);
+
+    // Print matrix C
+    printf("Matrix C:\n");
+    for (int i = 0; i < M; ++i) {
+        for (int j = 0; j < N; ++j) {
+            printf("%d ", C[i * N + j]);
+        }
+        printf("\n");
+    }
+
+    // Free device memory
+    cudaFree(d_A);
+    cudaFree(d_B);
+    cudaFree(d_C);
+
+    // Free host memory
+    free(A);
+    free(B);
+    free(C);
+
+    return 0;
+}
