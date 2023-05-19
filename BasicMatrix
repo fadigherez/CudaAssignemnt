@@ -1,0 +1,80 @@
+#include <stdio.h>
+
+#define M 32
+#define N 32
+#define K 32
+
+__global__ void matrixMulKernel(const int* A, const int* B, int* C, int M, int N, int K) {
+    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    int col = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (row < M && col < N) {
+        int sum = 0;
+        for (int i = 0; i < K; ++i) {
+            sum += A[row * K + i] * B[i * N + col];
+        }
+        C[row * N + col] = sum;
+    }
+}
+
+int main() {
+    int *A, *B, *C;
+    int *d_A, *d_B, *d_C;
+
+    // Allocate host memory
+    A = (int*)malloc(M * K * sizeof(int));
+    B = (int*)malloc(K * N * sizeof(int));
+    C = (int*)malloc(M * N * sizeof(int));
+
+    // Initialize matrices A and B
+    for (int i = 0; i < M; ++i) {
+        for (int j = 0; j < K; ++j) {
+            A[i * K + j] = i + j;
+        }
+    }
+    for (int i = 0; i < K; ++i) {
+        for (int j = 0; j < N; ++j) {
+            B[i * N + j] = i - j;
+        }
+    }
+
+    // Allocate device memory
+    cudaMalloc((void**)&d_A, M * K * sizeof(int));
+    cudaMalloc((void**)&d_B, K * N * sizeof(int));
+    cudaMalloc((void**)&d_C, M * N * sizeof(int));
+
+    // Copy matrices A and B from host to device
+    cudaMemcpy(d_A, A, M * K * sizeof(int), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_B, B, K * N * sizeof(int), cudaMemcpyHostToDevice);
+
+    // Define grid and block dimensions
+    dim3 dimBlock(16, 16);
+    dim3 dimGrid((N - 1) / dimBlock.x + 1, (M - 1) / dimBlock.y + 1);
+
+    // Launch kernel for matrix multiplication
+    matrixMulKernel<<<dimGrid, dimBlock>>>(d_A, d_B, d_C, M, N, K);
+
+    // Copy matrix C from device to host
+    cudaMemcpy(C, d_C, M * N * sizeof(int), cudaMemcpyDeviceToHost);
+
+    // Print matrix C
+    printf("Matrix C:\n");
+    for (int i = 0; i < M; ++i) {
+        for (int j = 0; j < N; ++j) {
+            printf("%d ", C[i * N + j]);
+        }
+        printf("\n");
+    }
+
+    // Free device memory
+    cudaFree(d_A);
+    cudaFree(d_B);
+    cudaFree(d_C);
+
+    // Free host memory
+    free(A);
+    free(B);
+    free(C);
+
+    return 0;
+}
