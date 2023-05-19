@@ -1,8 +1,8 @@
 #include <stdio.h>
 
-#define M 32
-#define N 32
-#define K 32
+#define M 1000
+#define N 1000
+#define K 1000
 #define TILE_SIZE 16
 
 __global__ void matrixMulKernel(const int* A, const int* B, int* C, int M, int N, int K) {
